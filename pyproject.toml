@@ -1,3 +1,0 @@
-# pyproject.toml is intentionally minimal.
-# Dependencies are managed via requirements.txt so that Vercel's
-# @vercel/python runtime uses pip instead of uv sync (which needs a lockfile).
