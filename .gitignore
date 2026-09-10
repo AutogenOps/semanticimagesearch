@@ -1,0 +1,30 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+env/
+venv/
+
+# Secrets — never commit!
+.env
+
+# Logs
+logs/
+*.log
+
+# Data directories (usually large)
+data/
+images/
+
+# IDE
+.vscode/
+.idea/
+
+# Vercel
+.vercel/

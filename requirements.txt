@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+pydantic
+langchain_core
+langchain_community
+requests
+langchain_openai
+pillow
+huggingface_hub
+python-dotenv
+python-multipart>=0.0.6
+langchain-qdrant
+structlog
+qdrant-client
+aiofiles

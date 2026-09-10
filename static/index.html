@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Semantic Image Search — CLIP + Qdrant + LLM</title>
+  <meta name="description" content="Search images with natural language or upload your own image to find visually similar matches, powered by CLIP embeddings and Qdrant vector search." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─────────────────────────────── RESET & BASE ─────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-0: #060918;
+      --bg-1: #0d1230;
+      --bg-glass: rgba(255,255,255,0.04);
+      --bg-glass-hover: rgba(255,255,255,0.08);
+      --border: rgba(255,255,255,0.10);
+      --border-active: rgba(99,179,237,0.5);
+      --text-primary: #f0f4ff;
+      --text-secondary: #8b9cc8;
+      --text-muted: #4a5880;
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-purple: #8b5cf6;
+      --accent-pink: #ec4899;
+      --gradient-main: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+      --gradient-btn: linear-gradient(135deg, #3b82f6, #7c3aed);
+      --radius-sm: 10px;
+      --radius-md: 16px;
+      --radius-lg: 24px;
+      --shadow-glow: 0 0 40px rgba(59,130,246,0.15);
+      --transition: 0.25s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-0);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─────────────────────────── ANIMATED BACKGROUND ─────────────────────────── */
+    .bg-orbs {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      overflow: hidden;
+    }
+    .orb {
+      position: absolute; border-radius: 50%;
+      filter: blur(120px); opacity: 0.15; animation: float 12s ease-in-out infinite;
+    }
+    .orb-1 { width: 600px; height: 600px; background: #3b82f6; top: -200px; left: -100px; animation-delay: 0s; }
+    .orb-2 { width: 500px; height: 500px; background: #8b5cf6; top: 30%; right: -150px; animation-delay: -4s; }
+    .orb-3 { width: 400px; height: 400px; background: #ec4899; bottom: -100px; left: 30%; animation-delay: -8s; }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(30px, -30px) scale(1.05); }
+      66% { transform: translate(-20px, 20px) scale(0.95); }
+    }
+
+    /* ─────────────────────────────── LAYOUT ───────────────────────────────────── */
+    .page { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px 80px; }
+
+    /* ─────────────────────────────── HEADER ───────────────────────────────────── */
+    header {
+      text-align: center;
+      padding: 72px 24px 48px;
+    }
+
+    .logo-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--bg-glass); border: 1px solid var(--border);
+      border-radius: 100px; padding: 6px 16px;
+      font-size: 12px; font-weight: 500; color: var(--text-secondary);
+      margin-bottom: 28px; letter-spacing: 0.05em;
+      backdrop-filter: blur(12px);
+    }
+    .logo-badge span { color: var(--accent-cyan); }
+
+    h1 {
+      font-size: clamp(36px, 6vw, 68px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      background: var(--gradient-main);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 20px;
+      animation: shimmer 4s ease-in-out infinite;
+      background-size: 200%;
+    }
+
+    @keyframes shimmer {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    .subtitle {
+      font-size: 18px; color: var(--text-secondary); max-width: 560px;
+      margin: 0 auto 36px; line-height: 1.7; font-weight: 400;
+    }
+
+    .tech-pills {
+      display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+      margin-bottom: 0;
+    }
+    .pill {
+      background: var(--bg-glass); border: 1px solid var(--border);
+      border-radius: 100px; padding: 5px 14px;
+      font-size: 12px; color: var(--text-secondary); font-weight: 500;
+      backdrop-filter: blur(8px); letter-spacing: 0.04em;
+    }
+
+    /* ─────────────────────────────── CARD ─────────────────────────────────────── */
+    .card {
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      padding: 32px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .card:hover { border-color: var(--border-active); box-shadow: var(--shadow-glow); }
+
+    /* ─────────────────────────────── TABS ─────────────────────────────────────── */
+    .tabs {
+      display: flex; gap: 4px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 4px;
+      margin-bottom: 32px;
+      max-width: 400px;
+    }
+
+    .tab-btn {
+      flex: 1; padding: 11px 20px;
+      background: transparent; border: none;
+      border-radius: calc(var(--radius-md) - 4px);
+      color: var(--text-secondary); font-size: 14px; font-weight: 500;
+      cursor: pointer; transition: all var(--transition);
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      font-family: inherit;
+    }
+    .tab-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+    .tab-btn.active {
+      background: var(--gradient-btn);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(59,130,246,0.3);
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; animation: fadeIn 0.3s ease; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ─────────────────────────────── FORM ELEMENTS ─────────────────────────────── */
+    .input-group { position: relative; margin-bottom: 20px; }
+
+    .input-label {
+      display: block; font-size: 13px; font-weight: 500;
+      color: var(--text-secondary); margin-bottom: 8px; letter-spacing: 0.02em;
+    }
+
+    .text-input {
+      width: 100%; padding: 14px 20px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary); font-size: 15px;
+      outline: none; transition: border-color var(--transition), box-shadow var(--transition);
+      font-family: inherit;
+    }
+    .text-input::placeholder { color: var(--text-muted); }
+    .text-input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+
+    /* Slider */
+    .slider-row { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+    .slider-label { font-size: 13px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; }
+    .slider-value {
+      font-size: 13px; font-weight: 700; color: var(--accent-cyan);
+      min-width: 20px; text-align: center;
+    }
+    input[type="range"] {
+      flex: 1; -webkit-appearance: none; appearance: none;
+      height: 4px; border-radius: 100px;
+      background: linear-gradient(to right, var(--accent-blue) 0%, var(--accent-blue) 50%, rgba(255,255,255,0.1) 50%);
+      cursor: pointer; outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 18px; height: 18px;
+      border-radius: 50%; background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      cursor: pointer; transition: transform 0.15s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+    /* Button */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 13px 28px; border-radius: var(--radius-sm);
+      background: var(--gradient-btn);
+      color: #fff; font-size: 15px; font-weight: 600;
+      border: none; cursor: pointer;
+      transition: transform var(--transition), box-shadow var(--transition), opacity var(--transition);
+      box-shadow: 0 4px 20px rgba(59,130,246,0.3);
+      font-family: inherit; letter-spacing: 0.01em;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(59,130,246,0.4); }
+    .btn:active { transform: translateY(0); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-full { width: 100%; }
+
+    /* ─────────────────────────── IMAGE UPLOAD ZONE ─────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-md);
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent-blue);
+      background: rgba(59,130,246,0.05);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon { font-size: 40px; margin-bottom: 12px; }
+    .drop-text { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+    .drop-text strong { color: var(--text-primary); }
+
+    .preview-img {
+      width: 100%; max-height: 300px; object-fit: contain;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    /* ─────────────────────────────── RESULTS ───────────────────────────────────── */
+    .results-section { margin-top: 40px; }
+
+    .results-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .results-title {
+      font-size: 16px; font-weight: 600; color: var(--text-primary);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .results-meta { font-size: 13px; color: var(--text-muted); }
+    .translated-badge {
+      font-size: 12px; padding: 4px 12px;
+      background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3);
+      border-radius: 100px; color: #a78bfa;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 20px;
+    }
+
+    .result-card {
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+      animation: cardIn 0.4s ease both;
+    }
+    .result-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(99,179,237,0.4);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4), 0 0 20px rgba(59,130,246,0.1);
+    }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .result-img-wrapper {
+      aspect-ratio: 4/3; overflow: hidden; position: relative;
+      background: rgba(255,255,255,0.03);
+    }
+    .result-img {
+      width: 100%; height: 100%; object-fit: cover;
+      transition: transform 0.4s ease;
+    }
+    .result-card:hover .result-img { transform: scale(1.05); }
+
+    .result-img-placeholder {
+      width: 100%; height: 100%; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 8px;
+      color: var(--text-muted); font-size: 13px;
+    }
+    .result-img-placeholder .icon { font-size: 32px; opacity: 0.5; }
+
+    .result-body { padding: 14px 16px; }
+    .result-filename {
+      font-size: 13px; font-weight: 500; color: var(--text-primary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 8px;
+    }
+    .result-footer { display: flex; align-items: center; justify-content: space-between; }
+    .result-category {
+      font-size: 11px; font-weight: 500;
+      background: rgba(6,182,212,0.12); border: 1px solid rgba(6,182,212,0.25);
+      color: var(--accent-cyan); border-radius: 100px; padding: 2px 10px;
+      text-transform: capitalize;
+    }
+    .result-score {
+      font-size: 12px; font-weight: 700;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+
+    /* ─────────────────────────────── STATES ───────────────────────────────────── */
+    .spinner {
+      width: 40px; height: 40px; margin: 40px auto;
+      border: 3px solid rgba(255,255,255,0.08);
+      border-top-color: var(--accent-blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state {
+      text-align: center; padding: 60px 20px; color: var(--text-muted);
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+    .empty-state p { font-size: 15px; line-height: 1.6; }
+
+    .error-state {
+      background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
+      border-radius: var(--radius-sm); padding: 16px 20px;
+      color: #fca5a5; font-size: 14px; margin-top: 20px;
+      display: flex; align-items: flex-start; gap: 10px;
+    }
+
+    /* ─────────────────────────────── RESPONSIVE ────────────────────────────────── */
+    @media (max-width: 640px) {
+      .card { padding: 20px; }
+      .results-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+      .tabs { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Animated background -->
+<div class="bg-orbs" aria-hidden="true">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<div class="page">
+
+  <!-- Header -->
+  <header>
+    <div class="logo-badge">
+      ✦ <span>Powered by</span> CLIP · Qdrant · OpenAI
+    </div>
+    <h1>Semantic Image Search</h1>
+    <p class="subtitle">
+      Search your image library using natural language or upload an image to find visually similar results.
+    </p>
+    <div class="tech-pills">
+      <span class="pill">🔍 CLIP Embeddings</span>
+      <span class="pill">⚡ Qdrant Vector DB</span>
+      <span class="pill">🧠 LLM Query Translation</span>
+      <span class="pill">🚀 Vercel Serverless</span>
+    </div>
+  </header>
+
+  <!-- Main Search Card -->
+  <div class="card">
+
+    <!-- Tabs -->
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" id="tab-text-btn" role="tab" aria-selected="true" aria-controls="tab-text" onclick="switchTab('text')">
+        🔤 Text Search
+      </button>
+      <button class="tab-btn" id="tab-image-btn" role="tab" aria-selected="false" aria-controls="tab-image" onclick="switchTab('image')">
+        🖼️ Image Search
+      </button>
+    </div>
+
+    <!-- Tab: Text Search -->
+    <div class="tab-panel active" id="tab-text" role="tabpanel">
+      <div class="input-group">
+        <label class="input-label" for="text-query">Describe what you're looking for</label>
+        <input
+          type="text"
+          id="text-query"
+          class="text-input"
+          placeholder="e.g. a golden sunset over the ocean, a cat sitting on a red couch..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+
+      <div class="slider-row">
+        <span class="slider-label">Top-K results</span>
+        <input type="range" id="text-k" min="1" max="20" value="6" oninput="updateSlider('text-k', 'text-k-val')" />
+        <span class="slider-value" id="text-k-val">6</span>
+      </div>
+
+      <button class="btn btn-full" id="text-search-btn" onclick="searchByText()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Search Images
+      </button>
+
+      <div id="text-results-area"></div>
+    </div>
+
+    <!-- Tab: Image Search -->
+    <div class="tab-panel" id="tab-image" role="tabpanel">
+      <img id="preview-img" class="preview-img" alt="Preview" />
+
+      <div class="drop-zone" id="drop-zone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        <input type="file" id="image-file" accept="image/jpeg,image/png,image/webp" onchange="handleFileSelect(event)" />
+        <div class="drop-icon">📸</div>
+        <div class="drop-text">
+          <strong>Drop your image here</strong><br />
+          or click to browse · JPG, PNG, WebP
+        </div>
+      </div>
+
+      <div class="slider-row">
+        <span class="slider-label">Top-K results</span>
+        <input type="range" id="image-k" min="1" max="20" value="6" oninput="updateSlider('image-k', 'image-k-val')" />
+        <span class="slider-value" id="image-k-val">6</span>
+      </div>
+
+      <button class="btn btn-full" id="image-search-btn" onclick="searchByImage()" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Find Similar Images
+      </button>
+
+      <div id="image-results-area"></div>
+    </div>
+
+  </div><!-- /card -->
+
+</div><!-- /page -->
+
+<script>
+  // ──────────────────────────────────────────────────────────────────────────
+  // CONFIG — auto-detects base URL so works both locally and on Vercel
+  // ──────────────────────────────────────────────────────────────────────────
+  const API_BASE = window.location.origin;
+
+  let selectedFile = null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // TAB SWITCHING
+  // ──────────────────────────────────────────────────────────────────────────
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + tab + '-btn').classList.add('active');
+    document.getElementById('tab-' + tab + '-btn').setAttribute('aria-selected', 'true');
+    document.getElementById('tab-' + tab).classList.add('active');
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // SLIDER
+  // ──────────────────────────────────────────────────────────────────────────
+  function updateSlider(sliderId, valId) {
+    const slider = document.getElementById(sliderId);
+    const val = parseInt(slider.value);
+    document.getElementById(valId).textContent = val;
+    // Update track fill
+    const pct = ((val - slider.min) / (slider.max - slider.min)) * 100;
+    slider.style.background = `linear-gradient(to right, var(--accent-blue) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
+  }
+
+  // Init sliders
+  updateSlider('text-k', 'text-k-val');
+  updateSlider('image-k', 'image-k-val');
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // FILE HANDLING
+  // ──────────────────────────────────────────────────────────────────────────
+  function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) setSelectedFile(file);
+  }
+
+  function setSelectedFile(file) {
+    selectedFile = file;
+    const preview = document.getElementById('preview-img');
+    const dropZone = document.getElementById('drop-zone');
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+    dropZone.style.padding = '12px';
+    dropZone.querySelector('.drop-icon').textContent = '✅';
+    dropZone.querySelector('.drop-text').innerHTML = `<strong>${file.name}</strong><br><span style="font-size:12px;color:var(--text-muted)">Click to change</span>`;
+    document.getElementById('image-search-btn').disabled = false;
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+  }
+
+  function handleDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) setSelectedFile(file);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // TEXT SEARCH
+  // ──────────────────────────────────────────────────────────────────────────
+  async function searchByText() {
+    const query = document.getElementById('text-query').value.trim();
+    if (!query) { showError('text-results-area', 'Please enter a search query.'); return; }
+
+    const k = document.getElementById('text-k').value;
+    const btn = document.getElementById('text-search-btn');
+    const area = document.getElementById('text-results-area');
+
+    btn.disabled = true;
+    area.innerHTML = '<div class="spinner"></div>';
+
+    try {
+      const url = new URL(`${API_BASE}/search-text`);
+      url.searchParams.set('q', query);
+      url.searchParams.set('k', k);
+
+      const res = await fetch(url.toString());
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      renderResults('text-results-area', data.results, {
+        translated: data.translated,
+        query: data.query,
+      });
+
+    } catch (err) {
+      showError('text-results-area', err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Allow Enter key
+  document.getElementById('text-query').addEventListener('keydown', e => {
+    if (e.key === 'Enter') searchByText();
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // IMAGE SEARCH
+  // ──────────────────────────────────────────────────────────────────────────
+  async function searchByImage() {
+    if (!selectedFile) { showError('image-results-area', 'Please select an image first.'); return; }
+
+    const k = document.getElementById('image-k').value;
+    const btn = document.getElementById('image-search-btn');
+    const area = document.getElementById('image-results-area');
+
+    btn.disabled = true;
+    area.innerHTML = '<div class="spinner"></div>';
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const url = new URL(`${API_BASE}/search-image`);
+      url.searchParams.set('k', k);
+
+      const res = await fetch(url.toString(), { method: 'POST', body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      renderResults('image-results-area', data.results, {});
+
+    } catch (err) {
+      showError('image-results-area', err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // RENDER RESULTS
+  // ──────────────────────────────────────────────────────────────────────────
+  function renderResults(containerId, results, meta) {
+    const area = document.getElementById(containerId);
+
+    if (!results || results.length === 0) {
+      area.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🔍</div>
+          <p>No results found. Try a different query or index some images first.</p>
+        </div>`;
+      return;
+    }
+
+    let translatedHtml = '';
+    if (meta.translated && meta.translated !== meta.query) {
+      translatedHtml = `
+        <div style="margin-bottom:16px;">
+          <span class="translated-badge">
+            ✦ LLM rewrote query to: <em>"${escHtml(meta.translated)}"</em>
+          </span>
+        </div>`;
+    }
+
+    const cards = results.map((item, idx) => {
+      const imgSrc = item.url || item.path || '';
+      const hasImage = !!imgSrc;
+      const scorePercent = Math.round((item.score || 0) * 100);
+      const category = item.category || 'uncategorized';
+      const filename = item.filename || 'image';
+
+      return `
+        <div class="result-card" style="animation-delay:${idx * 0.05}s">
+          <div class="result-img-wrapper">
+            ${hasImage
+              ? `<img class="result-img" src="${escHtml(imgSrc)}" alt="${escHtml(filename)}" loading="lazy" onerror="this.parentElement.innerHTML=placeholderHTML()" />`
+              : `<div class="result-img-placeholder"><div class="icon">🖼️</div><span>${escHtml(filename)}</span></div>`
+            }
+          </div>
+          <div class="result-body">
+            <div class="result-filename" title="${escHtml(filename)}">${escHtml(filename)}</div>
+            <div class="result-footer">
+              <span class="result-category">${escHtml(category)}</span>
+              <span class="result-score">${scorePercent}% match</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    area.innerHTML = `
+      <div class="results-section">
+        <div class="results-header">
+          <div class="results-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Results
+          </div>
+          <span class="results-meta">${results.length} image${results.length !== 1 ? 's' : ''} found</span>
+        </div>
+        ${translatedHtml}
+        <div class="results-grid">${cards}</div>
+      </div>`;
+  }
+
+  function placeholderHTML() {
+    return `<div class="result-img-placeholder"><div class="icon">❌</div><span>Image unavailable</span></div>`;
+  }
+
+  function escHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function showError(containerId, message) {
+    document.getElementById(containerId).innerHTML = `
+      <div class="error-state">
+        ⚠️ <div><strong>Error:</strong> ${escHtml(message)}</div>
+      </div>`;
+  }
+</script>
+
+</body>
+</html>
