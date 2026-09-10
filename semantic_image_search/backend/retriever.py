@@ -85,7 +85,8 @@ class ImageSearchService:
                 query=vector,
                 limit=k,
                 with_payload=True,
-                with_vectors=False
+                with_vectors=False,
+                query_filter=q_filter,
             )
 
             log.info(
@@ -141,7 +142,7 @@ class ImageSearchService:
                 limit=k,
                 with_payload=True,
                 with_vectors=False,
-                filter=q_filter,
+                query_filter=q_filter,
             )
 
             log.info(
