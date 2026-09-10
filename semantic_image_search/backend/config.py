@@ -32,13 +32,17 @@ class Config:
     BASE_DIR: Path = BASE_DIR
 
     # ------------------- PATHS -------------------
+    _is_serverless: bool = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+    import tempfile
+    _default_data_dir: Path = Path(tempfile.gettempdir()) if _is_serverless else (BASE_DIR / "data")
+
     IMAGES_ROOT: Path = Path(os.getenv("IMAGES_ROOT", str(BASE_DIR / "images")))
     log.info("IMAGES_ROOT configured", value=str(IMAGES_ROOT))
 
-    QUERY_IMAGE_ROOT: Path = Path(os.getenv("QUERY_IMAGE_ROOT", str(BASE_DIR / "data/query_images")))
+    QUERY_IMAGE_ROOT: Path = Path(os.getenv("QUERY_IMAGE_ROOT", str(_default_data_dir / "query_images")))
     log.info("QUERY_IMAGE_ROOT configured", value=str(QUERY_IMAGE_ROOT))
 
-    RETRIEVED_ROOT: Path = Path(os.getenv("RETRIEVED_ROOT", str(BASE_DIR / "data/retrieved")))
+    RETRIEVED_ROOT: Path = Path(os.getenv("RETRIEVED_ROOT", str(_default_data_dir / "retrieved")))
     log.info("RETRIEVED_ROOT configured", value=str(RETRIEVED_ROOT))
 
     # ------------------- CLIP (via HF Inference API) ---------------------
