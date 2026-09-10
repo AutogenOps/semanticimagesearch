@@ -23,7 +23,10 @@ class QdrantClientManager:
         if cls._client is None:
 
             if not Config.QDRANT_URL:
-                log.warning("QDRANT_URL missing in environment")
+                log.error("QDRANT_URL missing in environment")
+                raise SemanticImageSearchException(
+                    "QDRANT_URL is not set. Please add QDRANT_URL to your environment variables."
+                )
 
             if not Config.QDRANT_API_KEY:
                 log.warning("QDRANT_API_KEY missing in environment")

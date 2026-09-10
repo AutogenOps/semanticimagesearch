@@ -21,6 +21,31 @@ from semantic_image_search.backend.exception.custom_exception import SemanticIma
 # ------------------------------------------------------------------
 search_service: Optional[ImageSearchService] = None
 index_service: Optional[IndexService] = None
+init_error: Optional[str] = None
+
+
+def get_search_service() -> ImageSearchService:
+    global search_service, init_error
+    if search_service is None:
+        try:
+            search_service = ImageSearchService()
+            init_error = None
+        except Exception as e:
+            init_error = str(e)
+            raise
+    return search_service
+
+
+def get_index_service() -> IndexService:
+    global index_service, init_error
+    if index_service is None:
+        try:
+            index_service = IndexService()
+            init_error = None
+        except Exception as e:
+            init_error = str(e)
+            raise
+    return index_service
 
 
 # ------------------------------------------------------------------
@@ -28,12 +53,14 @@ index_service: Optional[IndexService] = None
 # ------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global search_service, index_service
+    global search_service, index_service, init_error
     try:
         search_service = ImageSearchService()
         index_service = IndexService()
+        init_error = None
         log.info("Services initialized successfully")
     except Exception as e:
+        init_error = str(e)
         log.error("Failed to initialize services on startup", error=str(e))
         # Don't raise — let endpoints handle failures gracefully
     yield
@@ -81,11 +108,21 @@ def serve_frontend():
 
 
 # ------------------------------------------------------------------
-# HEALTH CHECK
+# HEALTH CHECK (with diagnostic info)
 # ------------------------------------------------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok", "services_ready": search_service is not None}
+    return {
+        "status": "ok",
+        "services_ready": search_service is not None and index_service is not None,
+        "init_error": init_error,
+        "environment": {
+            "qdrant_url_set": bool(Config.QDRANT_URL),
+            "qdrant_api_key_set": bool(Config.QDRANT_API_KEY),
+            "openai_api_key_set": bool(Config.OPENAI_API_KEY),
+            "hf_api_key_set": bool(Config.HF_API_KEY),
+        },
+    }
 
 
 # ------------------------------------------------------------------
@@ -98,11 +135,19 @@ def ingest_images(
     folder = folder_path or str(Config.IMAGES_ROOT)
     log.info("Ingest request received", folder=folder)
 
-    if index_service is None:
-        return JSONResponse(status_code=503, content={"error": "IndexService not initialized"})
+    try:
+        service = get_index_service()
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": f"IndexService not initialized: {str(e)}",
+                "hint": "Check QDRANT_URL and QDRANT_API_KEY environment variables."
+            }
+        )
 
     try:
-        index_service.index_folder(folder)
+        service.index_folder(folder)
         log.info("Ingestion completed", folder=folder)
         return {"message": f"Indexed images from {folder}"}
 
@@ -139,8 +184,16 @@ def search_text_endpoint(
 ):
     log.info("Text search request received", query=q, top_k=k, category=category)
 
-    if search_service is None:
-        return JSONResponse(status_code=503, content={"error": "SearchService not initialized"})
+    try:
+        service = get_search_service()
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": f"SearchService not initialized: {str(e)}",
+                "hint": "Check QDRANT_URL, QDRANT_API_KEY, and HF_API_KEY environment variables."
+            }
+        )
 
     try:
         translated = translate_query(q)
@@ -148,7 +201,7 @@ def search_text_endpoint(
 
         metadata_filter = {"category": category} if category else None
 
-        results = search_service.search_by_text(translated, k=k, metadata_filter=metadata_filter)
+        results = service.search_by_text(translated, k=k, metadata_filter=metadata_filter)
 
         log.info("Text search completed", total_results=len(results.points))
 
@@ -181,8 +234,16 @@ def search_image_endpoint(
 ):
     log.info("Image search request received", filename=file.filename)
 
-    if search_service is None:
-        return JSONResponse(status_code=503, content={"error": "SearchService not initialized"})
+    try:
+        service = get_search_service()
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": f"SearchService not initialized: {str(e)}",
+                "hint": "Check QDRANT_URL, QDRANT_API_KEY, and HF_API_KEY environment variables."
+            }
+        )
 
     try:
         if not file.content_type or not file.content_type.startswith("image/"):
@@ -198,7 +259,7 @@ def search_image_endpoint(
 
         metadata_filter = {"category": category} if category else None
 
-        results = search_service.search_by_image(str(query_path), k=k, metadata_filter=metadata_filter)
+        results = service.search_by_image(str(query_path), k=k, metadata_filter=metadata_filter)
 
         resp = [
             {
@@ -216,3 +277,4 @@ def search_image_endpoint(
     except Exception as e:
         log.error("Image search failed", filename=file.filename, error=str(e))
         return JSONResponse(status_code=500, content={"error": str(e), "type": type(e).__name__})
+
